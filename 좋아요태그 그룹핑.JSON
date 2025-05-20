@@ -375,12 +375,6 @@
         // `#home-page` 대신 `#character-liked-scroll` 내부의 항목을 대상으로 합니다.
         const likeItemElements = document.querySelectorAll("#character-liked-scroll .css-1kwvgm4 > div.css-m2oo7f"); // 좋아요 항목 블록 선택자
 
-        // 좋아요 목록 페이지에서는 메인 페이지의 '일반 섹션'을 숨길 필요가 없으므로 해당 로직은 제거합니다.
-        // const generalSections = document.querySelectorAll(".css-19je3cw.edj5hvk0");
-        // generalSections.forEach(section => {
-        //     section.style.display = enabled ? "none" : "";
-        // });
-
         likeItemElements.forEach(itemElement => {
             const identifier = getLikeItemIdentifier(itemElement);
             const itemTags = likedItemsData[identifier]?.tags || [];
