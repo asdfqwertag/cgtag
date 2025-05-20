@@ -1,0 +1,481 @@
+// ==UserScript==
+// @name         좋아요 태그 그룹핑
+// @namespace    
+// @version      0.4
+// @description  crack.wrtn.ai 사이트의 좋아요 항목에 태그를 추가하고 태그별로 그룹핑하며, 좋아요 바로가기 버튼을 추가합니다.
+// @author       
+// @match        https://crack.wrtn.ai/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // ====================================================================
+    //                             유틸리티 함수 및 변수
+    // ====================================================================
+
+    const getStoredData = async (key, defaultValue) => {
+        const value = GM_getValue(key, JSON.stringify(defaultValue));
+        return JSON.parse(value);
+    };
+
+    const setStoredData = async (key, value) => {
+        GM_setValue(key, JSON.stringify(value));
+    };
+
+    const isDarkMode = () => document.body.getAttribute("data-theme") === "dark";
+
+    GM_addStyle(`
+        /* 메인 제어판 컨테이너 스타일 */
+        #chasm-like-grouper-container {
+            display: flex;
+            justify-content: flex-end; /* 오른쪽 정렬 */
+            align-items: center;
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 10px;
+            border-bottom: 1px solid ${isDarkMode() ? '#444' : '#eee'};
+            margin-bottom: 0px;
+            flex-wrap: wrap; /* 작은 화면에서 요소가 줄바꿈되도록 */
+        }
+        #chasm-like-grouper-container label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: ${isDarkMode() ? '#b0b0b0' : '#333'};
+        }
+        #chasm-like-grouper-container button {
+            padding: 5px 10px;
+            background: transparent;
+            color: ${isDarkMode() ? '#b0b0b0' : '#333'};
+            border: 1px solid ${isDarkMode() ? '#666' : '#ccc'};
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        #chasm-like-grouper-container button:hover {
+            background: ${isDarkMode() ? '#333' : '#f0f0f0'};
+        }
+        #chasm-like-grouper-container select {
+            padding: 5px;
+            border-radius: 3px;
+            border: 1px solid ${isDarkMode() ? '#666' : '#ccc'};
+            background-color: ${isDarkMode() ? '#333' : '#fff'};
+            color: ${isDarkMode() ? '#eee' : '#333'};
+            cursor: pointer;
+        }
+
+        /* 좋아요 항목별 태그 UI */
+        .like-item-tag-container {
+            margin-top: 5px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            align-items: center;
+        }
+        .like-item-tag {
+            background-color: ${isDarkMode() ? '#555' : '#e0e0e0'};
+            color: ${isDarkMode() ? '#eee' : '#333'};
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .like-item-tag-remove {
+            cursor: pointer;
+            color: ${isDarkMode() ? '#ddd' : '#777'};
+            font-weight: bold;
+            margin-left: 3px;
+        }
+        .like-item-tag-remove:hover {
+            color: #ff0000;
+        }
+        .add-tag-button {
+            background-color: ${isDarkMode() ? '#666' : '#ddd'};
+            color: ${isDarkMode() ? '#eee' : '#333'};
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 14px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0;
+        }
+        .add-tag-button:hover {
+            background-color: ${isDarkMode() ? '#777' : '#ccc'};
+        }
+
+        /* 좋아요 바로가기 버튼 스타일 (기존 내비게이션 버튼과 유사하게) */
+        .chasm-custom-nav-button {
+            display: flex;
+            height: 40px;
+            padding: 0 16px;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: none;
+            cursor: pointer;
+            text-decoration: none;
+            box-shadow: none;
+            outline: none;
+            transition: background-color 0.2s ease-in-out;
+            border-radius: 5px;
+        }
+        .chasm-custom-nav-button p {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text_tertiary);
+            white-space: nowrap;
+            transition: color 0.2s ease-in-out;
+        }
+        .chasm-custom-nav-button:hover {
+            background-color: ${isDarkMode() ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'};
+        }
+        .chasm-custom-nav-button:hover p {
+            color: var(--text_primary);
+        }
+    `);
+
+    // ====================================================================
+    //                             핵심 로직 함수
+    // ====================================================================
+
+    let likedItemsData = {};
+    let currentFilterTag = 'all';
+
+    /**
+     * 특정 좋아요 항목의 고유 식별자를 생성합니다.
+     * 여기서는 좋아요 항목 내의 이미지 URL을 사용하여 고유성을 확보합니다.
+     * @param {HTMLElement} itemElement - 좋아요 항목을 나타내는 DOM 요소
+     * @returns {string} 고유 식별자 (이미지 URL 또는 대체 식별자)
+     */
+    const getLikeItemIdentifier = (itemElement) => {
+        // 좋아요 항목 내의 이미지 요소를 찾습니다.
+        const imgElement = itemElement.querySelector('img');
+        if (imgElement && imgElement.src) {
+            return imgElement.src;
+        }
+
+        // 이미지가 없거나 src가 없는 경우, 이전 방식(제목)을 시도해 볼 수 있습니다.
+        const titleElement = itemElement.querySelector("p.css-1ctc6vx");
+        if (titleElement) {
+            return titleElement.textContent.trim();
+        }
+
+        // 그래도 식별자를 찾을 수 없으면 임시 랜덤 ID를 반환합니다.
+        console.warn("경고: 좋아요 항목의 안정적인 식별자를 찾을 수 없습니다. 임시 ID를 사용합니다.", itemElement);
+        return `item-${Math.random().toString(36).substr(2, 9)}`;
+    };
+
+    const updateLikeItemTags = async (identifier, tags) => {
+        if (!likedItemsData[identifier]) {
+            const itemElement = document.querySelector(`[data-item-identifier="${identifier}"]`);
+            const title = itemElement ? itemElement.querySelector("p.css-1ctc6vx")?.textContent.trim() : identifier;
+            likedItemsData[identifier] = { title: title, tags: [] };
+        }
+        likedItemsData[identifier].tags = [...new Set(tags.map(tag => tag.trim()).filter(tag => tag))].sort();
+        await setStoredData('chasmLikedItems', likedItemsData);
+        console.log('좋아요 항목 데이터 업데이트됨:', likedItemsData);
+
+        const itemElement = document.querySelector(`[data-item-identifier="${identifier}"]`);
+        if (itemElement) {
+            renderLikeItemTags(itemElement, identifier);
+        }
+        updateTagFilterOptions();
+        filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
+    };
+
+    const renderLikeItemTags = (itemElement, identifier) => {
+        let tagContainer = itemElement.querySelector('.like-item-tag-container');
+        if (!tagContainer) {
+            tagContainer = document.createElement('div');
+            tagContainer.className = 'like-item-tag-container';
+            const titleElement = itemElement.querySelector("p.css-1ctc6vx");
+            if (titleElement && titleElement.parentNode) {
+                titleElement.parentNode.insertBefore(tagContainer, titleElement.nextSibling);
+            } else {
+                itemElement.appendChild(tagContainer);
+            }
+        }
+        tagContainer.innerHTML = '';
+
+        const currentTags = likedItemsData[identifier]?.tags || [];
+
+        currentTags.forEach(tag => {
+            const tagSpan = document.createElement('span');
+            tagSpan.className = 'like-item-tag';
+            tagSpan.textContent = tag;
+
+            const removeButton = document.createElement('span');
+            removeButton.className = 'like-item-tag-remove';
+            removeButton.textContent = 'x';
+            removeButton.onclick = async () => {
+                const newTags = currentTags.filter(t => t !== tag);
+                await updateLikeItemTags(identifier, newTags);
+            };
+            tagSpan.appendChild(removeButton);
+            tagContainer.appendChild(tagSpan);
+        });
+
+        const addTagButton = document.createElement('button');
+        addTagButton.className = 'add-tag-button';
+        addTagButton.textContent = '+';
+        addTagButton.title = '태그 추가';
+        addTagButton.onclick = async () => {
+            const newTagInput = prompt("추가할 태그를 입력하세요 (쉼표로 구분하여 여러 개 입력 가능):", currentTags.join(', '));
+            if (newTagInput !== null) {
+                const tagsToAdd = newTagInput.split(',').map(t => t.trim()).filter(t => t);
+                await updateLikeItemTags(identifier, tagsToAdd);
+            }
+        };
+        tagContainer.appendChild(addTagButton);
+    };
+
+    const addLikeShortcutButton = () => {
+        const navElement = document.querySelector('nav[display="flex"][height="100%"].css-11xfrd6');
+        if (!navElement) {
+            console.warn("네비게이션 메뉴를 찾을 수 없습니다. 좋아요 바로가기 버튼을 추가할 수 없습니다.");
+            return;
+        }
+
+        const myCharacterLink = navElement.querySelector('a[href="/my"]');
+        if (!myCharacterLink) {
+            console.warn("내 캐릭터 링크를 찾을 수 없습니다. 좋아요 바로가기 버튼을 추가할 수 없습니다.");
+            return;
+        }
+
+        if (document.getElementById('like-shortcut-button')) {
+            return;
+        }
+
+        const likeShortcutLink = document.createElement('a');
+        likeShortcutLink.href = "https://crack.wrtn.ai/liked";
+        likeShortcutLink.id = "like-shortcut-button";
+        likeShortcutLink.className = "chasm-custom-nav-button";
+
+        const likeButtonContent = document.createElement('button');
+        likeButtonContent.style.cssText = "display:flex;height:40px;";
+        likeButtonContent.className = "css-rvlsw9 e3j5p2p1";
+
+        const likeButtonText = document.createElement('p');
+        likeButtonText.style.cssText = "color:var(--text_tertiary);";
+        likeButtonText.className = "css-b6dcci e3j5p2p4";
+        likeButtonText.textContent = "좋아요";
+
+        likeButtonContent.appendChild(likeButtonText);
+        likeShortcutLink.appendChild(likeButtonContent);
+
+        myCharacterLink.parentNode.insertBefore(likeShortcutLink, myCharacterLink.nextSibling);
+        console.log("좋아요 바로가기 버튼이 추가되었습니다.");
+    };
+
+    /**
+     * 메인 제어판 UI를 생성하고 페이지에 삽입합니다.
+     */
+    const setupControlPanel = () => {
+        const existingContainer = document.getElementById("chasm-like-grouper-container");
+        if (existingContainer) return;
+
+        // '좋아요 목록' 텍스트를 포함하는 p 태그를 찾습니다.
+        // `p color="text_primary" class="css-1vhr1ma e3j5p2p4"`
+        const targetTextElement = document.querySelector('p.css-1vhr1ma.e3j5p2p4[color="text_primary"]');
+
+        // 해당 텍스트 요소가 존재하고, 그 부모 요소에 접근할 수 있는지 확인합니다.
+        if (!targetTextElement || !targetTextElement.parentNode) {
+            console.warn("제어판을 삽입할 '좋아요 목록' 텍스트 요소를 찾을 수 없습니다.");
+            return;
+        }
+
+        const container = document.createElement("div");
+        container.id = "chasm-like-grouper-container";
+
+        const toggleLabel = document.createElement("label");
+        toggleLabel.textContent = "그룹핑 활성화";
+        const toggleSwitch = document.createElement("input");
+        toggleSwitch.type = "checkbox";
+        toggleSwitch.id = "grouper-switch";
+        toggleSwitch.checked = true;
+        toggleSwitch.addEventListener("change", () => filterLikes(toggleSwitch.checked, currentFilterTag));
+        toggleLabel.appendChild(toggleSwitch);
+        container.appendChild(toggleLabel);
+
+        const tagFilterSelect = document.createElement("select");
+        tagFilterSelect.id = "tag-filter-select";
+        tagFilterSelect.addEventListener("change", (e) => {
+            currentFilterTag = e.target.value;
+            filterLikes(toggleSwitch.checked, currentFilterTag);
+        });
+        container.appendChild(tagFilterSelect);
+
+        const manageTagsButton = document.createElement("button");
+        manageTagsButton.textContent = "태그 관리";
+        manageTagsButton.addEventListener("click", async () => {
+            let allTags = new Set();
+            for (const identifier in likedItemsData) {
+                likedItemsData[identifier].tags.forEach(tag => allTags.add(tag));
+            }
+            let tagsString = Array.from(allTags).sort().join(', ');
+            const newTagsString = prompt("모든 태그를 쉼표(,)로 구분하여 입력하세요:", tagsString);
+            if (newTagsString !== null) {
+                const updatedTags = newTagsString.split(',').map(tag => tag.trim()).filter(tag => tag);
+                for (const identifier in likedItemsData) {
+                    const itemTags = likedItemsData[identifier].tags;
+                    const filteredTags = itemTags.filter(tag => updatedTags.includes(tag));
+                    await updateLikeItemTags(identifier, filteredTags);
+                }
+                updateTagFilterOptions();
+            }
+        });
+        container.appendChild(manageTagsButton);
+
+        // '좋아요 목록' 텍스트 요소의 부모 노드에, 텍스트 요소 바로 뒤에 삽입합니다.
+        targetTextElement.parentNode.insertBefore(container, targetTextElement.nextSibling);
+        updateTagFilterOptions();
+    };
+
+    const updateTagFilterOptions = () => {
+        const selectElement = document.getElementById("tag-filter-select");
+        if (!selectElement) return;
+
+        selectElement.innerHTML = '';
+
+        const allTags = new Set();
+        for (const identifier in likedItemsData) {
+            likedItemsData[identifier].tags.forEach(tag => allTags.add(tag));
+        }
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = 'all';
+        defaultOption.textContent = '모든 태그 보기';
+        selectElement.appendChild(defaultOption);
+
+        Array.from(allTags).sort().forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag;
+            option.textContent = tag;
+            selectElement.appendChild(option);
+        });
+
+        if (selectElement.value !== currentFilterTag) {
+            selectElement.value = currentFilterTag;
+        }
+    };
+
+    const filterLikes = (enabled, filterTag) => {
+        // 좋아요 목록 페이지에서 필터링을 수행하도록 CSS 선택자 업데이트
+        // `#home-page` 대신 `#character-liked-scroll` 내부의 항목을 대상으로 합니다.
+        const likeItemElements = document.querySelectorAll("#character-liked-scroll .css-1kwvgm4 > div.css-m2oo7f"); // 좋아요 항목 블록 선택자
+
+        // 좋아요 목록 페이지에서는 메인 페이지의 '일반 섹션'을 숨길 필요가 없으므로 해당 로직은 제거합니다.
+        // const generalSections = document.querySelectorAll(".css-19je3cw.edj5hvk0");
+        // generalSections.forEach(section => {
+        //     section.style.display = enabled ? "none" : "";
+        // });
+
+        likeItemElements.forEach(itemElement => {
+            const identifier = getLikeItemIdentifier(itemElement);
+            const itemTags = likedItemsData[identifier]?.tags || [];
+
+            if (enabled && filterTag !== 'all') {
+                itemElement.style.display = itemTags.includes(filterTag) ? "" : "none";
+            } else {
+                itemElement.style.display = "";
+            }
+        });
+    };
+
+    const injectTagUIIntoLikeItems = () => {
+        // 좋아요 목록 페이지에서 태그 UI를 주입할 요소 선택자를 `#character-liked-scroll` 내부의 항목으로 변경
+        const likeItemElements = document.querySelectorAll("#character-liked-scroll .css-1kwvgm4 > div.css-m2oo7f");
+
+        likeItemElements.forEach(itemElement => {
+            if (itemElement.dataset.tagUiInjected) {
+                return;
+            }
+
+            const identifier = getLikeItemIdentifier(itemElement);
+            if (!identifier) {
+                return;
+            }
+
+            itemElement.dataset.itemIdentifier = identifier;
+
+            renderLikeItemTags(itemElement, identifier);
+            itemElement.dataset.tagUiInjected = true;
+        });
+    };
+
+    // ====================================================================
+    //                         초기화 및 이벤트 리스너
+    // ====================================================================
+
+    const init = async () => {
+        likedItemsData = await getStoredData('chasmLikedItems', {});
+        console.log('초기 불러온 좋아요 항목 데이터:', likedItemsData);
+
+        // 좋아요 목록 페이지에서만 제어판 및 태그 UI를 활성화하도록 조건 추가
+        if (window.location.pathname === '/liked') {
+            setupControlPanel();
+            injectTagUIIntoLikeItems();
+            filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
+        }
+
+        // 좋아요 바로가기 버튼은 모든 페이지에서 필요하므로 조건 없이 호출
+        addLikeShortcutButton();
+
+        const observer = new MutationObserver((mutations) => {
+            let needsFilter = false;
+            let navUpdated = false;
+
+            for (const mutation of mutations) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    // 현재 좋아요 목록 페이지인지 확인
+                    if (window.location.pathname === '/liked') {
+                        injectTagUIIntoLikeItems();
+                        needsFilter = true;
+                    }
+                    if (mutation.target.closest('header') || mutation.target.closest('nav')) {
+                        addLikeShortcutButton();
+                        navUpdated = true;
+                    }
+                }
+            }
+
+            if (needsFilter || (window.location.pathname === '/liked' && document.getElementById("grouper-switch")?.checked)) {
+                filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
+            }
+        });
+
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        window.addEventListener('load', () => {
+            if (window.location.pathname === '/liked') {
+                setupControlPanel();
+                injectTagUIIntoLikeItems();
+                filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
+            }
+            addLikeShortcutButton();
+        });
+
+        setTimeout(() => {
+            if (window.location.pathname === '/liked') {
+                setupControlPanel();
+                injectTagUIIntoLikeItems();
+                filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
+            }
+            addLikeShortcutButton();
+        }, 1500);
+    };
+
+    init();
+
+})();
