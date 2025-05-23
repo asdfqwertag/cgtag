@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name        좋아요 태그 그룹핑
-// @namespace   https://github.com/asdfqwertag/cgtag
-// @version     0.8
-// @description crack.wrtn.ai 사이트의 좋아요 항목에 태그를 추가하고 태그별로 그룹핑하며, 좋아요 바로가기 버튼을 추가합니다. (태그 선택 모달 기능 포함, 태그 관리 버튼 오류 수정)
+// @namespace   http://your-namespace.com/
+// @version     1.0 // 버전 업데이트!
+// @description crack.wrtn.ai 사이트의 좋아요 항목에 태그를 추가하고 태그별로 그룹핑하며, 좋아요 바로가기 버튼을 추가합니다. (충돌 및 태그 관리 오류 해결, 태그 추가 디버깅 강화, 모든 태그 별도 관리)
 // @author      YourName
 // @match       https://crack.wrtn.ai/*
 // @grant       GM_setValue
@@ -314,61 +314,83 @@
     //                       핵심 로직 함수
     // ====================================================================
 
-    let likedItemsData = {};
+    let likedItemsData = {}; // 좋아요 항목별 태그 데이터
+    let allAvailableTags = new Set(); // 모든 태그를 저장하는 Set (항목에 부여되지 않아도 유지)
     let currentFilterTag = 'all';
 
     const getLikeItemIdentifier = (itemElement) => {
         const imgElement = itemElement.querySelector('img');
         if (imgElement && imgElement.src) {
+            // console.log('Identifier (Image src):', imgElement.src); // 디버깅용 로그
             return imgElement.src;
         }
         const titleElement = itemElement.querySelector("p.css-1ctc6vx");
         if (titleElement) {
+            // console.log('Identifier (Title text):', titleElement.textContent.trim()); // 디버깅용 로그
             return titleElement.textContent.trim();
         }
         console.warn("경고: 좋아요 항목의 안정적인 식별자를 찾을 수 없습니다. 임시 ID를 사용합니다.", itemElement);
-        return `item-${Math.random().toString(36).substr(2, 9)}`;
+        const tempId = `item-${Math.random().toString(36).substr(2, 9)}`;
+        // console.log('Identifier (Temporary ID):', tempId); // 디버깅용 로그
+        return tempId;
     };
 
     const updateLikeItemTags = async (identifier, tags) => {
+        // 기존에 데이터가 없었다면 새 항목을 추가
         if (!likedItemsData[identifier]) {
+            // itemElement를 다시 찾아 정확한 title을 가져오도록 시도
             const itemElement = document.querySelector(`[data-item-identifier="${identifier}"]`);
+            // itemElement가 있다면 해당 항목의 title을 사용하고, 없다면 identifier 자체를 title로 사용
             const title = itemElement ? itemElement.querySelector("p.css-1ctc6vx")?.textContent.trim() : identifier;
             likedItemsData[identifier] = { title: title, tags: [] };
         }
+        // 태그를 업데이트 (중복 제거 및 정렬)
         likedItemsData[identifier].tags = [...new Set(tags.map(tag => tag.trim()).filter(tag => tag))].sort();
-        await setStoredData('chasmLikedItems', likedItemsData);
-        console.log('좋아요 항목 데이터 업데이트됨:', likedItemsData);
 
+        // 현재 likedItemsData에 있는 모든 태그를 allAvailableTags에 추가 (사용자가 명시적으로 삭제하기 전까지 유지)
+        likedItemsData[identifier].tags.forEach(tag => allAvailableTags.add(tag));
+
+        // console.log('저장될 likedItemsData (Identifier: ', identifier, '):', JSON.parse(JSON.stringify(likedItemsData))); // 디버깅용 로그
+        // console.log('저장될 tags:', tags); // 디버깅용 로그
+
+        // 데이터 저장
+        await setStoredData('chasmLikedItems', likedItemsData);
+        await setStoredData('chasmAllTags', Array.from(allAvailableTags)); // 모든 태그 저장
+        console.log('좋아요 항목 데이터 업데이트됨:', likedItemsData);
+        console.log('모든 사용 가능한 태그 업데이트됨:', Array.from(allAvailableTags));
+
+
+        // UI 업데이트
         const itemElement = document.querySelector(`[data-item-identifier="${identifier}"]`);
         if (itemElement) {
             renderLikeItemTags(itemElement, identifier);
         }
-        updateTagFilterOptions();
+        updateTagFilterOptions(); // 전체 태그 목록이 업데이트될 수 있으므로 다시 호출
         filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
     };
 
     const renderLikeItemTags = (itemElement, identifier) => {
-        console.log('renderLikeItemTags 호출됨:', identifier, itemElement);
+        // console.log('renderLikeItemTags 호출됨 (Identifier):', identifier, itemElement); // 디버깅용 로그
         let tagContainer = itemElement.querySelector('.like-item-tag-container');
         if (!tagContainer) {
-            console.log('태그 컨테이너 없음, 새로 생성');
+            // console.log('태그 컨테이너 없음, 새로 생성 (Identifier):', identifier); // 디버깅용 로그
             tagContainer = document.createElement('div');
             tagContainer.className = 'like-item-tag-container';
             const titleElement = itemElement.querySelector("p.css-1ctc6vx");
             if (titleElement && titleElement.parentNode) {
-                console.log('titleElement.parentNode.insertBefore 사용');
+                // console.log('titleElement.parentNode.insertBefore 사용 (Identifier):', identifier); // 디버깅용 로그
                 titleElement.parentNode.insertBefore(tagContainer, titleElement.nextSibling);
             } else {
-                console.log('itemElement.appendChild(tagContainer) 사용 (대체)');
+                // console.log('itemElement.appendChild(tagContainer) 사용 (대체) (Identifier):', identifier); // 디버깅용 로그
                 itemElement.appendChild(tagContainer);
             }
         }
-        console.log('태그 컨테이너 HTML 초기화 전:', tagContainer.innerHTML);
+        // console.log('태그 컨테이너 HTML 초기화 전 (Identifier):', identifier, tagContainer.innerHTML); // 디버깅용 로그
         tagContainer.innerHTML = ''; // 기존 태그들을 지우고 새로 그리기 위함
-        console.log('태그 컨테이너 HTML 초기화 후:', tagContainer.innerHTML);
+        // console.log('태그 컨테이너 HTML 초기화 후 (Identifier):', identifier, tagContainer.innerHTML); // 디버깅용 로그
 
         const currentTags = likedItemsData[identifier]?.tags || [];
+        // console.log('현재 항목의 태그 (Identifier):', identifier, currentTags); // 디버깅용 로그
 
         currentTags.forEach(tag => {
             const tagSpan = document.createElement('span');
@@ -395,11 +417,11 @@
             event.stopImmediatePropagation(); // 이벤트 버블링 즉시 중단 (매우 중요)
             event.preventDefault();           // 기본 동작 방지 (혹시 모를 링크 이동 등)
 
-            console.log('Add Tag 버튼 클릭됨, 태그 선택 모달 띄우기');
+            // console.log('Add Tag 버튼 클릭됨, 태그 선택 모달 띄우기 (Identifier):', identifier); // 디버깅용 로그
             showTagSelectionModal(currentTags, identifier);
         };
         tagContainer.appendChild(addTagButton);
-        console.log('renderLikeItemTags 완료, 최종 태그 컨테이너:', tagContainer.innerHTML);
+        // console.log('renderLikeItemTags 완료, 최종 태그 컨테이너 (Identifier):', identifier, tagContainer.innerHTML); // 디버깅용 로그
     };
 
     /**
@@ -440,12 +462,8 @@
         const tagsContainer = modalContent.querySelector('.chasm-tag-modal-tags');
         const selectedTags = new Set(currentLikedTags); // 현재 좋아요에 적용된 태그를 초기 선택값으로 설정
 
-        // 모든 기존 태그 가져오기 (정렬)
-        let allExistingTags = new Set();
-        for (const id in likedItemsData) {
-            likedItemsData[id].tags.forEach(tag => allExistingTags.add(tag));
-        }
-        const sortedExistingTags = Array.from(allExistingTags).sort((a, b) => {
+        // 모든 기존 태그 가져오기 (allAvailableTags 사용)
+        const sortedExistingTags = Array.from(allAvailableTags).sort((a, b) => {
             // 현재 선택된 태그가 먼저 오도록 정렬 (선택된 태그들을 상단에 보여주는 효과)
             const aSelected = currentLikedTags.includes(a);
             const bSelected = currentLikedTags.includes(b);
@@ -491,38 +509,50 @@
             modalBackdrop.remove();
         });
 
-        // '태그 관리' 버튼 클릭 시의 동작 수정: 직접 prompt를 띄우도록 변경
-        modalContent.querySelector('.manage-tags-button').addEventListener('click', async () => {
+        // '태그 관리' 버튼 클릭 이벤트 (상단 제어판 존재 여부에 따라 분기)
+        modalContent.querySelector('.manage-tags-button').addEventListener('click', async () => { // async 추가
             modalBackdrop.remove(); // 태그 관리 창을 띄우기 전에 현재 모달 닫기
 
-            let allTags = new Set();
-            for (const id in likedItemsData) {
-                likedItemsData[id].tags.forEach(tag => allTags.add(tag));
-            }
-            let tagsString = Array.from(allTags).sort().join(', ');
+            const mainManageTagsButton = document.querySelector('#chasm-like-grouper-container .manage-tags-button');
 
-            const newTagsString = prompt(
-                "전체 태그 목록을 쉼표(,)로 구분하여 입력하세요.\n(예: 태그1, 태그2, 새로운태그)\n여기에 추가하거나 삭제하면 모든 좋아요 항목의 태그에도 반영됩니다.",
-                tagsString
-            );
-            if (newTagsString !== null) {
-                const updatedTags = newTagsString.split(',')
-                                                .map(tag => tag.trim())
-                                                .filter(tag => tag);
+            if (mainManageTagsButton) {
+                // 상단 제어판의 '태그 관리' 버튼이 있다면 그걸 클릭하도록 합니다.
+                mainManageTagsButton.click();
+            } else {
+                // 상단 제어판의 '태그 관리' 버튼을 찾을 수 없을 때 직접 prompt를 띄웁니다.
+                console.warn("'태그 관리' 버튼을 찾을 수 없어 prompt 창을 직접 띄웁니다.");
 
-                // 삭제된 태그가 있을 경우 해당 태그를 가지고 있던 좋아요 항목에서 제거
-                for (const identifier in likedItemsData) {
-                    const itemTags = likedItemsData[identifier].tags;
-                    const filteredTags = itemTags.filter(tag => updatedTags.includes(tag));
+                let tagsString = Array.from(allAvailableTags).sort().join(', '); // allAvailableTags 사용
 
-                    if (filteredTags.length !== itemTags.length || !filteredTags.every((val, idx) => val === itemTags[idx])) {
-                        await updateLikeItemTags(identifier, filteredTags);
+                const newTagsString = prompt(
+                    "전체 태그 목록을 쉼표(,)로 구분하여 입력하세요.\n(예: 태그1, 태그2, 새로운태그)\n여기에 추가하거나 삭제하면 모든 좋아요 항목의 태그에도 반영됩니다.",
+                    tagsString
+                );
+                if (newTagsString !== null) {
+                    const updatedTagsArray = newTagsString.split(',')
+                                                    .map(tag => tag.trim())
+                                                    .filter(tag => tag);
+
+                    allAvailableTags = new Set(updatedTagsArray); // allAvailableTags 업데이트
+                    await setStoredData('chasmAllTags', Array.from(allAvailableTags)); // 저장
+
+                    // 삭제된 태그가 있을 경우 해당 태그를 가지고 있던 좋아요 항목에서 제거
+                    for (const id in likedItemsData) {
+                        const itemTags = likedItemsData[id].tags;
+                        // allAvailableTags에 없는 태그는 제거
+                        const filteredTags = itemTags.filter(tag => allAvailableTags.has(tag));
+
+                        // 태그 목록에 변화가 있다면 업데이트
+                        if (filteredTags.length !== itemTags.length || !filteredTags.every((val, idx) => val === itemTags[idx])) {
+                            await updateLikeItemTags(id, filteredTags); // id 전달
+                        }
                     }
+                    updateTagFilterOptions();
+                    filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
                 }
-                updateTagFilterOptions();
-                filterLikes(document.getElementById("grouper-switch")?.checked || true, currentFilterTag);
             }
         });
+
 
         // 배경 클릭 시 모달 닫기 (이벤트 버블링 방지)
         modalBackdrop.addEventListener('click', (event) => {
@@ -610,26 +640,25 @@
         const manageTagsButton = document.createElement("button");
         manageTagsButton.textContent = "태그 관리";
         manageTagsButton.addEventListener("click", async () => {
-            let allTags = new Set();
-            for (const identifier in likedItemsData) {
-                likedItemsData[identifier].tags.forEach(tag => allTags.add(tag));
-            }
-            let tagsString = Array.from(allTags).sort().join(', ');
+            let tagsString = Array.from(allAvailableTags).sort().join(', '); // allAvailableTags 사용
 
             const newTagsString = prompt(
-                "전체 태그 목록을 쉼표(,)로 구분하여 입력하세요.\n(예: 태그1, 태그2, 새로운태그)\n여기에 추가하거나 삭제하면 모든 좋아요 항목의 태그에도 반영됩니다.",
+                "전체 태그 목록을 쉼표(,)로 구분하여 입력하세요.\n(예: 태그1, 태그2, 새로운태그)\n여기에 추가하거나 삭제하면 모든 좋아요 항목의 태그에서도 반영됩니다.",
                 tagsString
             );
             if (newTagsString !== null) {
-                const updatedTags = newTagsString.split(',')
+                const updatedTagsArray = newTagsString.split(',')
                                                 .map(tag => tag.trim())
                                                 .filter(tag => tag);
+
+                allAvailableTags = new Set(updatedTagsArray); // allAvailableTags 업데이트
+                await setStoredData('chasmAllTags', Array.from(allAvailableTags)); // 저장
 
                 // 삭제된 태그가 있을 경우 해당 태그를 가지고 있던 좋아요 항목에서 제거
                 for (const identifier in likedItemsData) {
                     const itemTags = likedItemsData[identifier].tags;
-                    // 업데이트된 태그 목록에 없는 태그는 제거
-                    const filteredTags = itemTags.filter(tag => updatedTags.includes(tag));
+                    // allAvailableTags에 없는 태그는 제거
+                    const filteredTags = itemTags.filter(tag => allAvailableTags.has(tag));
 
                     // 태그 목록에 변화가 있다면 업데이트
                     if (filteredTags.length !== itemTags.length || !filteredTags.every((val, idx) => val === itemTags[idx])) {
@@ -652,17 +681,12 @@
 
         selectElement.innerHTML = '';
 
-        const allTags = new Set();
-        for (const identifier in likedItemsData) {
-            likedItemsData[identifier].tags.forEach(tag => allTags.add(tag));
-        }
-
         const defaultOption = document.createElement('option');
         defaultOption.value = 'all';
         defaultOption.textContent = '모든 태그 보기';
         selectElement.appendChild(defaultOption);
 
-        Array.from(allTags).sort().forEach(tag => {
+        Array.from(allAvailableTags).sort().forEach(tag => { // allAvailableTags 사용
             const option = document.createElement('option');
             option.value = tag;
             option.textContent = tag;
@@ -715,7 +739,9 @@
 
     const init = async () => {
         likedItemsData = await getStoredData('chasmLikedItems', {});
+        allAvailableTags = new Set(await getStoredData('chasmAllTags', [])); // 모든 태그 로드
         console.log('초기 불러온 좋아요 항목 데이터:', likedItemsData);
+        console.log('초기 불러온 모든 사용 가능한 태그:', Array.from(allAvailableTags));
 
         if (window.location.pathname === '/liked') {
             setupControlPanel();
@@ -770,6 +796,7 @@
             addLikeShortcutButton();
         });
 
+        // 초기 로딩 후 UI가 완전히 안정화될 시간을 줍니다.
         setTimeout(() => {
             if (window.location.pathname === '/liked') {
                 setupControlPanel();
