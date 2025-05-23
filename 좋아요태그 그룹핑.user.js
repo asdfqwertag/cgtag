@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name        좋아요 태그 그룹핑
-// @namespace   https://github.com/asdfqwertag/cgtag/blob/main/%EC%A2%8B%EC%95%84%EC%9A%94%ED%83%9C%EA%B7%B8%20%EA%B7%B8%EB%A3%B9%ED%95%91.user.js
+// @namespace   https://github.com/asdfqwertag/cgtag
 // @version     0.8
 // @description crack.wrtn.ai 사이트의 좋아요 항목에 태그를 추가하고 태그별로 그룹핑하며, 좋아요 바로가기 버튼을 추가합니다. (태그 선택 모달 기능 포함, 태그 관리 버튼 오류 수정)
 // @author      YourName
