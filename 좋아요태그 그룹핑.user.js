@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        좋아요 태그 그룹핑
-// @namespace   http://your-namespace.com/
-// @version     1.0 // 버전 업데이트!
+// @namespace   https://github.com/asdfqwertag/cgtag/tree/main
+// @version     1.0 
 // @description crack.wrtn.ai 사이트의 좋아요 항목에 태그를 추가하고 태그별로 그룹핑하며, 좋아요 바로가기 버튼을 추가합니다. (충돌 및 태그 관리 오류 해결, 태그 추가 디버깅 강화, 모든 태그 별도 관리)
 // @author      YourName
 // @match       https://crack.wrtn.ai/*
